@@ -1,0 +1,19 @@
+# IntelliJ
+.idea/
+*.iml
+out/
+
+# Gradle
+.gradle/
+build/
+
+# Maven
+target/
+
+# Logs & OS
+*.log
+.DS_Store
+Thumbs.db
+
+# Env/Secrets
+.env

@@ -10,35 +10,31 @@ import java.nio.file.Paths;
 
 import static org.apache.spark.sql.functions.*;
 
-public class CsvSessionStreaming {
+public class CsvSlidingStreaming {
     public static void main(String[] args) throws Exception {
-//        String watchDir = args.length > 0 ? args[0] : "file:///path/to/watch_dir";
-
+        // For some JDKs on Windows; harmless elsewhere
         System.setProperty("spark.driver.extraJavaOptions", "--add-exports=java.base/sun.nio.ch=ALL-UNNAMED");
         System.setProperty("spark.executor.extraJavaOptions", "--add-exports=java.base/sun.nio.ch=ALL-UNNAMED");
 
-
-        Path p = Paths.get("watchDir");           // <— folder under your project root
-        Files.createDirectories(p);                      // make sure it exists
+        Path p = Paths.get("watchDir"); // folder under your project root
+        Files.createDirectories(p);
 
         String watchDir = (args.length > 0)
                 ? args[0]
-                : p.toAbsolutePath().toUri().toString(); // e.g. "file:///C:/.../data/watch_dir"
+                : p.toAbsolutePath().toUri().toString(); // e.g., "file:///C:/.../watchDir"
 
         System.out.println("Watching: " + watchDir);
 
         SparkSession spark = SparkSession.builder()
-                .appName("CsvSessionStreaming")
+                .appName("CsvSlidingStreaming")
                 .master("local[1]")
                 .config("spark.sql.shuffle.partitions", "1")
-                .config("spark.sql.streaming.sessionWindow.merge.sessions.in.local.partition","true")
-                // avoid timezone surprises when converting millis → timestamp
-                .config("spark.sql.session.timeZone", "UTC")
+                .config("spark.sql.session.timeZone", "UTC") // keep millis → timestamp stable
                 .getOrCreate();
 
         spark.streams().addListener(new org.apache.spark.sql.streaming.StreamingQueryListener() {
             @Override public void onQueryStarted(QueryStartedEvent e) {
-                System.out.println("Starting the query "+ e.name());
+                System.out.println("Starting the query " + e.name());
             }
             @Override public void onQueryTerminated(QueryTerminatedEvent e) {}
             @Override public void onQueryProgress(QueryProgressEvent e) {
@@ -46,54 +42,50 @@ public class CsvSessionStreaming {
             }
         });
 
-//        StructType schema = new StructType()
-//                .add("ts_ms", DataTypes.LongType, false)
-//                .add("key",   DataTypes.StringType, false)
-//                .add("value", DataTypes.DoubleType, true);
-
-        // 1) Read CSV *as a stream* from a folder (new files = new micro-batches)
+        // 1) Read CSV lines as a stream from a folder (new files => new micro-batch)
         Dataset<Row> lines = spark.readStream()
                 .format("text")
-//                .schema(schema)
-//                .option("header", "false")
-//                .option("mode", "PERMISSIVE")
-                .option("maxFilesPerTrigger", 1)
+                .option("maxFilesPerTrigger", 1) // one file per trigger (like your session setup)
                 .load(watchDir);
 
+        // 2) Parse "ts,key,val" and build event-time from epoch millis (keep ms precision)
         Dataset<Row> parsed = lines
                 .withColumn("line", trim(col("value")))
                 .filter(col("line").isNotNull().and(length(col("line")).gt(0)))
                 .withColumn("parts", split(col("line"), ","))
-                .filter(size(col("parts")).geq(2)) // need at least ts and key
+                .filter(size(col("parts")).geq(2))                // need at least ts and key
                 .withColumn("ts_ms", col("parts").getItem(0).cast("long"))
                 .withColumn("key",   col("parts").getItem(1))
-                // keep ms precision: ms -> seconds(double) -> TIMESTAMP
                 .withColumn("eventTime", col("ts_ms").divide(lit(1000.0)).cast("timestamp"))
                 .drop("value","line","parts");
-        // 2) Build event time from epoch millis
 
-
-        // 3) Apply watermark BEFORE filtering, so 'W' rows still advance time
+        // 3) Watermark first so 'W' rows (if any) still advance event-time before filtering
         Dataset<Row> withWM = parsed.withWatermark("eventTime", "0 milliseconds");
 
-        // 4) Exclude 'W' rows from the aggregation (but they already advanced WM)
-        Dataset<Row> agg = withWM
-                .groupBy(session_window(col("eventTime"), "10 milliseconds").alias("win"),
-                        col("key"))
-                .agg(sum(when(col("key").notEqual("W"), lit(1)).otherwise(lit(0))).alias("count"));
+        // 4) Exclude 'W' rows from aggregation (but they already advanced the watermark)
+//        Dataset<Row> dataOnly = withWM.filter(col("key").notEqual("W"));
 
-        // 5) Session window: gap=10ms; lateness controlled by withWatermark(10ms)
+        // 5) Sliding window: size=10 ms, slide=2 ms; lateness controlled by watermark(0 ms)
+        Dataset<Row> agg = withWM
+                .groupBy(
+                        window(col("eventTime"), "10 milliseconds", "2 milliseconds").alias("win"),
+                        col("key"))
+                .count();
+
+        // 6) Shape output: (start_ms,end_ms,key,count)
         Dataset<Row> shaped = agg.select(
-                expr("cast(unix_micros(win.start)/1000 as bigint)").alias("session_start_ms"),
-                expr("cast(unix_micros(win.end)/1000 as bigint)").alias("session_end_ms"),
+                expr("cast(unix_micros(win.start)/1000 as bigint)").alias("window_start_ms"),
+                expr("cast(unix_micros(win.end)/1000 as bigint)").alias("window_end_ms"),
                 col("key"),
                 col("count")
         );
+
+        // 7) Append mode => emit only after window closes by watermark (your “force at WM” behavior)
         StreamingQuery q = shaped.writeStream()
                 .format("console")
                 .outputMode("append")
                 .option("truncate", "false")
-                .trigger(Trigger.ProcessingTime("10 second"))
+                .trigger(Trigger.ProcessingTime("10 seconds")) // check for new files every 10s
                 .start();
 
         q.awaitTermination();

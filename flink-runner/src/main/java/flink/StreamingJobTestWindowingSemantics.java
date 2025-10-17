@@ -264,15 +264,15 @@ public class StreamingJobTestWindowingSemantics {
 //		fileName = "Data.csv";
 		//fileName = "DataIntWithDelay.csv";
 //		fileName = "DummyDataWithDelay.csv";
-		fileName = "DummyDataWithDelaySession.csv";
-//		fileName = "DummyDataInorderSession.csv";
+//		fileName = "DummyDataWithDelaySession.csv";
+		fileName = "DummyDataInorderSession.csv";
 		slideWindowSize=10;
 		slideWindowSlide=2;
 		sessionWindowGap = 10;
 		allowedLatness=0;
 //		jobForWindowTypeAndData(WindowType.Session,fileName, false,false, true);
 //		jobForWindowTypeAndData(WindowType.SlidingTuple,fileName, false,false, true);
-		jobForWindowTypeAndData(WindowType.Session,fileName, false, false, true);
+		jobForWindowTypeAndData(WindowType.SlidingTime,fileName, false, false, true);
 	}
 
 

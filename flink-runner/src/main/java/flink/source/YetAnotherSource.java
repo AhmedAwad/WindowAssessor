@@ -26,6 +26,7 @@ public class YetAnotherSource implements SourceFunction<Tuple3<Long,String,Doubl
     public void run(SourceContext<Tuple3<Long, String, Double>> ctx) throws Exception {
         try (BufferedReader reader = new BufferedReader(new FileReader(filePath))) {
             String line;
+            long maxTs = Long.MIN_VALUE;
             while (running && (line = reader.readLine()) != null) {
                 if (line.startsWith("*")) continue;
 
@@ -37,12 +38,15 @@ public class YetAnotherSource implements SourceFunction<Tuple3<Long,String,Doubl
                         : Math.round(((random.nextGaussian()*5)+20)*100.0)/100.0;
 
                 synchronized (ctx.getCheckpointLock()) {
-//                    if ("W".equals(key)) {
+                    System.out.println(String.format("Emitting record with ts %d, key %s, value %f", ts, key, temperature));
+                    ctx.collectWithTimestamp(Tuple3.of(ts, key, temperature), ts);
+
+                    Thread.sleep(500);
+                    if (ts > maxTs) {
                         ctx.emitWatermark(new Watermark(ts));
-                        System.out.printf("Emitting watermark %d%n", ts);
-//                    } else {
-                        ctx.collectWithTimestamp(Tuple3.of(ts, key, temperature), ts);
-//                    }
+                        System.out.printf("Emitting watermark %d%n", ts - 1);
+                        maxTs = ts;
+                    }
                 }
             }
             // VERY IMPORTANT: flush remaining windows at end of bounded source
