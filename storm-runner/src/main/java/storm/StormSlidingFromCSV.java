@@ -40,7 +40,9 @@ public class StormSlidingFromCSV {
         public void execute(TupleWindow input) {
             // Compute counts per key for this pane (ignore key == "W")
             Map<String, Long> counts = new LinkedHashMap<>();
+            System.out.println("Elements in window");
             for (Tuple t : input.get()) {
+                System.out.println(t.getLongByField("ts")+", "+t.getStringByField("key"));
                 String key = t.getStringByField("key");
                 if (!"W".equalsIgnoreCase(key)) {
                     counts.merge(key, 1L, Long::sum);
@@ -59,6 +61,11 @@ public class StormSlidingFromCSV {
                 String out = String.format("(%d,%d,%s,%d)", start, end, e.getKey(), e.getValue());
 //                System.out.println(out);
                 collector.emit(new Values(start, end, e.getKey(), e.getValue(), out));
+                try {
+                    Thread.sleep(500);
+                } catch (InterruptedException ex) {
+                    throw new RuntimeException(ex);
+                }
             }
         }
 
@@ -88,8 +95,8 @@ public class StormSlidingFromCSV {
         // CSV with lines like:
         // 13,A,22
         // 27,W,0   <-- optional: keeps advancing watermark but is excluded from counts
-//        final String fileName = "DummyDataWithDelaySession.csv";
-        final String fileName = "DummyDataInorderSession.csv";
+        final String fileName = "DummyDataWithDelaySession.csv";
+//        final String fileName = "DummyDataInorderSession.csv";
 
         TopologyBuilder builder = new TopologyBuilder();
 
@@ -103,8 +110,8 @@ public class StormSlidingFromCSV {
         SlidingCountBolt slidingBolt = (SlidingCountBolt) new SlidingCountBolt()
                 .withWindow(BaseWindowedBolt.Duration.of(10), BaseWindowedBolt.Duration.of(2))
                 .withTimestampField("ts")
-                .withLag(BaseWindowedBolt.Duration.of(0));
-                //.withWatermarkInterval(new BaseWindowedBolt.Duration(5));
+                .withLag(BaseWindowedBolt.Duration.of(0))
+                .withWatermarkInterval(BaseWindowedBolt.Duration.of(200));
 
         builder.setBolt("sliding-count", slidingBolt, 1)
                 .shuffleGrouping("csv-spout");

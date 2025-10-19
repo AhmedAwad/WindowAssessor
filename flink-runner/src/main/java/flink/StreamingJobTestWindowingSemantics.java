@@ -264,8 +264,8 @@ public class StreamingJobTestWindowingSemantics {
 //		fileName = "Data.csv";
 		//fileName = "DataIntWithDelay.csv";
 //		fileName = "DummyDataWithDelay.csv";
-//		fileName = "DummyDataWithDelaySession.csv";
-		fileName = "DummyDataInorderSession.csv";
+		fileName = "DummyDataWithDelaySession.csv";
+//		fileName = "DummyDataInorderSession.csv";
 		slideWindowSize=10;
 		slideWindowSlide=2;
 		sessionWindowGap = 10;
