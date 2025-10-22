@@ -1,9 +1,9 @@
-##What problem does this work address?
+## What problem does this work address?
 
 Stream processing engines often disagree on how window operators behave when data arrives out of order or late. This creates portability and correctness issues: the same window specification can include/exclude different events or emit different results depending on the engine’s notion of progress (e.g., watermarks or stream time) and its reporting style.
 The paper clarifies this by presenting a unified lifecycle for window operators—covering event inclusion, triggering, and reporting—so developers can reason about behaviour consistently across engines.
 
-##Which systems were evaluated?
+## Which systems were evaluated?
 
 The study compares representative, widely used engines:
 
